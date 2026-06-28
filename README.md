@@ -22,7 +22,32 @@ RoboRacer Digital Twin Autonomous Sim-Racing League using AutoDRIVE Ecosystem
 > [!NOTE]
 > The simulator executable must be placed inside [`/autodrive_simulator`](/autodrive_simulator) directory. This repository ships with an examplar working simulator executable, which can be updated as necessary.
 
-### Build:
+###Quick Start: Build and Push Script
+
+For convenience, a build and push script is provided to build and push the AutoDRIVE Devkit (RoboRacer API) Docker image:
+
+### Usage:
+
+```bash
+./build_and_push.sh <event-name>
+```
+
+### Example:
+
+```bash
+# Build and push for CDC-TF 2025 competition
+./build_and_push.sh 2025-cdc-tf-compete
+```
+
+This script will:
+- Build the Docker image using `autodrive_devkit.Dockerfile`
+- Tag it as `glpuga/autodrive_roboracer_api:<event-name>`
+- Push it to Docker Hub
+
+> [!TIP]
+> Make sure you are logged in to Docker Hub (`docker login`) before running the script.
+
+##  Build:
 
 ```bash
 docker build --tag autodriveecosystem/autodrive_roboracer_sim:<TAG> -f autodrive_simulator.Dockerfile .

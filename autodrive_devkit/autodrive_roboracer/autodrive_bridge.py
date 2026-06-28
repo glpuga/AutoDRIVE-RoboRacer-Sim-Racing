@@ -303,7 +303,12 @@ sio = socketio.Server(async_mode='gevent')
 # Registering "connect" event handler for the server
 @sio.on('connect')
 def connect(sid, environ):
-    print("Connected!")
+    print(f"Connected! Session ID: {sid}")
+
+# Registering "disconnect" event handler for the server
+@sio.on('disconnect')
+def disconnect(sid):
+    print(f"Disconnected! Session ID: {sid}")
 
 # Registering "Bridge" event handler for the server
 @sio.on('Bridge')
@@ -313,27 +318,52 @@ def bridge(sid, data):
 
     # Wait for data to become available
     if data:
-        ########################################################################
-        # INCOMMING DATA
-        ########################################################################
-        # Actuator feedbacks
-        autodrive.throttle = float(data["V1 Throttle"])
-        autodrive.steering = float(data["V1 Steering"])
-        # Wheel encoders
-        autodrive.encoder_angles = np.fromstring(data["V1 Encoder Angles"], dtype=float, sep=' ')
-        # IPS
-        autodrive.position = np.fromstring(data["V1 Position"], dtype=float, sep=' ')
+        
+        try:
+            ########################################################################
+            # INCOMMING DATA
+            ########################################################################
+            # Actuator feedbacks
+            autodrive.throttle = float(data["V1 Throttle"])
+            autodrive.steering = float(data["V1 Steering"])
+            # Wheel encoders
+            autodrive.encoder_angles = np.fromstring(data["V1 Encoder Angles"], dtype=float, sep=' ')
+            # IPS
+            autodrive.position = np.fromstring(data["V1 Position"], dtype=float, sep=' ')
+        except KeyError as e:
+            print(f"ERROR: Missing key in data: {e}")
+            print(f"Available keys: {list(data.keys())}")
+            return
         # IMU
         autodrive.orientation_quaternion = np.fromstring(data["V1 Orientation Quaternion"], dtype=float, sep=' ')
         autodrive.angular_velocity = np.fromstring(data["V1 Angular Velocity"], dtype=float, sep=' ')
         autodrive.linear_acceleration = np.fromstring(data["V1 Linear Acceleration"], dtype=float, sep=' ')
-        # Speedometer
-        autodrive.linear_velocity = np.fromstring(data["V1 Linear Velocity"], dtype=float, sep=' ')
+        # Speedometer (backward compatibility for old simulator versions)
+        if "V1 Linear Velocity" in data:
+            # New simulator version (post-f52e4a3)
+            autodrive.linear_velocity = np.fromstring(data["V1 Linear Velocity"], dtype=float, sep=' ')
+        elif "V1 Speed" in data:
+            # Old simulator version (pre-f52e4a3) - convert scalar to 3D vector
+            speed = float(data["V1 Speed"])
+            # Assuming speed is along x-axis in local frame
+            autodrive.linear_velocity = np.array([speed, 0.0, 0.0])
+        else:
+            print("WARNING: Neither 'V1 Linear Velocity' nor 'V1 Speed' found in data")
+            autodrive.linear_velocity = np.zeros(3, dtype=float)
         # LIDAR
-        autodrive.lidar_scan_rate = float(data["V1 LIDAR Scan Rate"])
-        autodrive.lidar_range_array = np.fromstring(gzip.decompress(base64.b64decode(data["V1 LIDAR Range Array"])).decode('utf-8'), sep='\n')
+        try:
+            autodrive.lidar_scan_rate = float(data["V1 LIDAR Scan Rate"])
+            autodrive.lidar_range_array = np.fromstring(gzip.decompress(base64.b64decode(data["V1 LIDAR Range Array"])).decode('utf-8'), sep='\n')
+        except Exception as e:
+            print(f"ERROR processing LIDAR data: {e}")
+            autodrive.lidar_scan_rate = 40
+            autodrive.lidar_range_array = np.zeros(1080, dtype=float)
         # Cameras
-        autodrive.front_camera_image = np.asarray(Image.open(BytesIO(base64.b64decode(data["V1 Front Camera Image"]))))
+        try:
+            autodrive.front_camera_image = np.asarray(Image.open(BytesIO(base64.b64decode(data["V1 Front Camera Image"]))))
+        except Exception as e:
+            print(f"ERROR processing camera data: {e}")
+            autodrive.front_camera_image = np.zeros((480, 640, 3), dtype=np.uint8)
         # Lap data
         autodrive.lap_count = int(float(data["V1 Lap Count"]))
         autodrive.lap_time = float(data["V1 Lap Time"])
@@ -341,38 +371,46 @@ def bridge(sid, data):
         autodrive.best_lap_time = float(data["V1 Best Lap Time"])
         autodrive.collision_count = int(float(data["V1 Collisions"]))
 
-        # Actuator feedbacks
-        publish_actuator_feedbacks(autodrive.throttle, autodrive.steering)
-        # Wheel encoders
-        publish_encoder_data(autodrive.encoder_angles)
-        # IPS
-        publish_ips_data(autodrive.position)
-        # IMU
-        publish_imu_data(autodrive.orientation_quaternion, autodrive.angular_velocity, autodrive.linear_acceleration)
-        # Odometry
-        publish_odometery_data(autodrive.position, autodrive.orientation_quaternion, autodrive.linear_velocity, autodrive.angular_velocity)
-        # Coordinate transforms
-        broadcast_transforms(transform_broadcaster, autodrive)
-        # LIDAR
-        publish_lidar_scan(autodrive.lidar_scan_rate, autodrive.lidar_range_array, autodrive.lidar_intensity_array)
-        # Cameras
-        publish_camera_images(autodrive.front_camera_image)
-        # Lap data
-        publish_lap_count_data(autodrive.lap_count)
-        publish_lap_time_data(autodrive.lap_time)
-        publish_last_lap_time_data(autodrive.last_lap_time)
-        publish_best_lap_time_data(autodrive.best_lap_time)
-        publish_collision_count_data(autodrive.collision_count)
+        try:
+            # Actuator feedbacks
+            publish_actuator_feedbacks(autodrive.throttle, autodrive.steering)
+            # Wheel encoders
+            publish_encoder_data(autodrive.encoder_angles)
+            # IPS
+            publish_ips_data(autodrive.position)
+            # IMU
+            publish_imu_data(autodrive.orientation_quaternion, autodrive.angular_velocity, autodrive.linear_acceleration)
+            # Odometry
+            publish_odometery_data(autodrive.position, autodrive.orientation_quaternion, autodrive.linear_velocity, autodrive.angular_velocity)
+            # Coordinate transforms
+            broadcast_transforms(transform_broadcaster, autodrive)
+            # LIDAR
+            publish_lidar_scan(autodrive.lidar_scan_rate, autodrive.lidar_range_array, autodrive.lidar_intensity_array)
+            # Cameras
+            publish_camera_images(autodrive.front_camera_image)
+            # Lap data
+            publish_lap_count_data(autodrive.lap_count)
+            publish_lap_time_data(autodrive.lap_time)
+            publish_last_lap_time_data(autodrive.last_lap_time)
+            publish_best_lap_time_data(autodrive.best_lap_time)
+            publish_collision_count_data(autodrive.collision_count)
+        except Exception as e:
+            print(f"ERROR publishing to ROS topics: {e}")
+            import traceback
+            traceback.print_exc()
+            return
 
         ########################################################################
         # OUTGOING DATA
         ########################################################################
         # Vehicle and simulation commands
-        sio.emit('Bridge', data={'V1 Throttle': str(autodrive.throttle_command),
-                                 'V1 Steering': str(autodrive.steering_command),
-                                 'V1 Reset': str(autodrive.reset_command)
-                                 }
-                )
+        # Send both old and new field names for backward compatibility
+        sio.emit('Bridge', data={
+            'V1 Throttle': str(autodrive.throttle_command),
+            'V1 Steering': str(autodrive.steering_command),
+            'V1 Reset': str(autodrive.reset_command),
+            'Reset': str(autodrive.reset_command)  # Backward compatibility for old simulator
+        })
 
 #########################################################
 # AUTODRIVE ROS 2 BRIDGE INFRASTRUCTURE
